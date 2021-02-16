@@ -84,6 +84,8 @@ contract RewardsAdjuster {
         require(ethPriceOracle_ != address(0), "RewardsAdjuster/null-eth-oracle");
         require(treasuryParamAdjuster_ != address(0), "RewardsAdjuster/null-treasury-adjuster");
 
+	      authorizedAccounts[msg.sender]   = 1;
+
         // Store
         oracleRelayer         = OracleRelayerLike(oracleRelayer_);
         treasury              = StabilityFeeTreasuryLike(treasury_);
