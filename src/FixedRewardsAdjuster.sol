@@ -6,8 +6,7 @@ abstract contract StabilityFeeTreasuryLike {
 }
 abstract contract TreasuryFundableLike {
     function authorizedAccounts(address) virtual public view returns (uint256);
-    function baseUpdateCallerReward() virtual public view returns (uint256);
-    function maxUpdateCallerReward() virtual public view returns (uint256);
+    function fixedReward() virtual public view returns (uint256);
     function modifyParameters(bytes32, uint256) virtual external;
 }
 abstract contract TreasuryParamAdjusterLike {
@@ -20,7 +19,7 @@ abstract contract OracleRelayerLike {
     function redemptionPrice() virtual public returns (uint256);
 }
 
-contract MinMaxRewardsAdjuster {
+contract FixedRewardsAdjuster {
     // --- Auth ---
     mapping (address => uint) public authorizedAccounts;
     /**
@@ -43,7 +42,7 @@ contract MinMaxRewardsAdjuster {
     * @notice Checks whether msg.sender can call an authed function
     **/
     modifier isAuthorized {
-        require(authorizedAccounts[msg.sender] == 1, "MinMaxRewardsAdjuster/account-not-authorized");
+        require(authorizedAccounts[msg.sender] == 1, "FixedRewardsAdjuster/account-not-authorized");
         _;
     }
 
@@ -55,10 +54,8 @@ contract MinMaxRewardsAdjuster {
         uint256 gasAmountForExecution;    // [gas amount]
         // Delay between two calls to recompute the fees for this funded function
         uint256 updateDelay;              // [seconds]
-        // Multiplier applied to the computed base reward
-        uint256 baseRewardMultiplier;     // [hundred]
-        // Multiplied applied to the computed max reward
-        uint256 maxRewardMultiplier;      // [hundred]
+        // Multiplier applied to the computed fixed reward
+        uint256 fixedRewardMultiplier;     // [hundred]
     }
 
     // --- Variables ---
@@ -86,11 +83,10 @@ contract MinMaxRewardsAdjuster {
         bytes4  targetFunctionSignature,
         uint256 updateDelay,
         uint256 gasAmountForExecution,
-        uint256 baseRewardMultiplier,
-        uint256 maxRewardMultiplier
+        uint256 fixedRewardMultiplier
     );
     event RemoveFundingReceiver(address indexed receiver, bytes4 targetFunctionSignature);
-    event RecomputedRewards(address receiver, uint256 newBaseReward, uint256 newMaxReward);
+    event RecomputedRewards(address receiver, uint256 newFixedReward);
 
     constructor(
         address oracleRelayer_,
@@ -100,11 +96,11 @@ contract MinMaxRewardsAdjuster {
         address treasuryParamAdjuster_
     ) public {
         // Checks
-        require(oracleRelayer_ != address(0), "MinMaxRewardsAdjuster/null-oracle-relayer");
-        require(treasury_ != address(0), "MinMaxRewardsAdjuster/null-treasury");
-        require(gasPriceOracle_ != address(0), "MinMaxRewardsAdjuster/null-gas-oracle");
-        require(ethPriceOracle_ != address(0), "MinMaxRewardsAdjuster/null-eth-oracle");
-        require(treasuryParamAdjuster_ != address(0), "MinMaxRewardsAdjuster/null-treasury-adjuster");
+        require(oracleRelayer_ != address(0), "FixedRewardsAdjuster/null-oracle-relayer");
+        require(treasury_ != address(0), "FixedRewardsAdjuster/null-treasury");
+        require(gasPriceOracle_ != address(0), "FixedRewardsAdjuster/null-gas-oracle");
+        require(ethPriceOracle_ != address(0), "FixedRewardsAdjuster/null-eth-oracle");
+        require(treasuryParamAdjuster_ != address(0), "FixedRewardsAdjuster/null-treasury-adjuster");
 
 	      authorizedAccounts[msg.sender]   = 1;
 
@@ -138,21 +134,21 @@ contract MinMaxRewardsAdjuster {
     uint256 public constant THOUSAND       = 1000;
 
     function addition(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require((z = x + y) >= x, "MinMaxRewardsAdjuster/add-uint-uint-overflow");
+        require((z = x + y) >= x, "FixedRewardsAdjuster/add-uint-uint-overflow");
     }
     function subtract(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require((z = x - y) <= x, "MinMaxRewardsAdjuster/sub-uint-uint-underflow");
+        require((z = x - y) <= x, "FixedRewardsAdjuster/sub-uint-uint-underflow");
     }
     function multiply(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require(y == 0 || (z = x * y) / y == x, "MinMaxRewardsAdjuster/multiply-uint-uint-overflow");
+        require(y == 0 || (z = x * y) / y == x, "FixedRewardsAdjuster/multiply-uint-uint-overflow");
     }
     function divide(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require(y > 0, "MinMaxRewardsAdjuster/div-y-null");
+        require(y > 0, "FixedRewardsAdjuster/div-y-null");
         z = x / y;
-        require(z <= x, "MinMaxRewardsAdjuster/div-invalid");
+        require(z <= x, "FixedRewardsAdjuster/div-invalid");
     }
     function wdivide(uint x, uint y) public pure returns (uint z) {
-        require(y > 0, "MinMaxRewardsAdjuster/div-y-null");
+        require(y > 0, "FixedRewardsAdjuster/div-y-null");
         z = multiply(x, WAD) / y;
     }
 
@@ -163,7 +159,7 @@ contract MinMaxRewardsAdjuster {
     * @param addr The new contract address
     */
     function modifyParameters(bytes32 parameter, address addr) external isAuthorized {
-        require(addr != address(0), "MinMaxRewardsAdjuster/null-address");
+        require(addr != address(0), "FixedRewardsAdjuster/null-address");
         if (parameter == "oracleRelayer") {
             oracleRelayer = OracleRelayerLike(addr);
             oracleRelayer.redemptionPrice();
@@ -180,7 +176,7 @@ contract MinMaxRewardsAdjuster {
         else if (parameter == "treasuryParamAdjuster") {
             treasuryParamAdjuster = TreasuryParamAdjusterLike(addr);
         }
-        else revert("MinMaxRewardsAdjuster/modify-unrecognized-params");
+        else revert("FixedRewardsAdjuster/modify-unrecognized-params");
         emit ModifyParameters(parameter, addr);
     }
     /*
@@ -191,9 +187,9 @@ contract MinMaxRewardsAdjuster {
     * @param val The new parameter value
     */
     function modifyParameters(address receiver, bytes4 targetFunction, bytes32 parameter, uint256 val) external isAuthorized {
-        require(val > 0, "MinMaxRewardsAdjuster/null-value");
+        require(val > 0, "FixedRewardsAdjuster/null-value");
         FundingReceiver storage fundingReceiver = fundingReceivers[receiver][targetFunction];
-        require(fundingReceiver.lastUpdateTime > 0, "MinMaxRewardsAdjuster/non-existent-receiver");
+        require(fundingReceiver.lastUpdateTime > 0, "FixedRewardsAdjuster/non-existent-receiver");
 
         if (parameter == "gasAmountForExecution") {
             fundingReceiver.gasAmountForExecution = val;
@@ -201,15 +197,11 @@ contract MinMaxRewardsAdjuster {
         else if (parameter == "updateDelay") {
             fundingReceiver.updateDelay = val;
         }
-        else if (parameter == "baseRewardMultiplier") {
-            require(both(val > 0, val <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
-            fundingReceiver.baseRewardMultiplier = val;
+        else if (parameter == "fixedRewardMultiplier") {
+            require(both(val > 0, val <= THOUSAND), "FixedRewardsAdjuster/invalid-base-reward-multiplier");
+            fundingReceiver.fixedRewardMultiplier = val;
         }
-        else if (parameter == "maxRewardMultiplier") {
-            require(both(val >= HUNDRED, val <= THOUSAND), "MinMaxRewardsAdjuster/invalid-max-reward-multiplier");
-            fundingReceiver.maxRewardMultiplier = val;
-        }
-        else revert("MinMaxRewardsAdjuster/modify-unrecognized-params");
+        else revert("FixedRewardsAdjuster/modify-unrecognized-params");
         emit ModifyParameters(receiver, targetFunction, parameter, val);
     }
 
@@ -219,7 +211,7 @@ contract MinMaxRewardsAdjuster {
     * @param targetFunctionSignature The signature of the function whose callers get funding
     * @param updateDelay The update delay between two consecutive calls that update the base and max rewards for this receiver
     * @param gasAmountForExecution The gas amount spent calling the function with signature targetFunctionSignature
-    * @param baseRewardMultiplier Multiplier applied to the computed base reward
+    * @param fixedRewardMultiplier Multiplier applied to the computed base reward
     * @param maxRewardMultiplier Multiplied applied to the computed max reward
     */
     function addFundingReceiver(
@@ -227,34 +219,30 @@ contract MinMaxRewardsAdjuster {
         bytes4  targetFunctionSignature,
         uint256 updateDelay,
         uint256 gasAmountForExecution,
-        uint256 baseRewardMultiplier,
-        uint256 maxRewardMultiplier
+        uint256 fixedRewardMultiplier
     ) external isAuthorized {
         // Checks
-        require(receiver != address(0), "MinMaxRewardsAdjuster/null-receiver");
-        require(updateDelay > 0, "MinMaxRewardsAdjuster/null-update-delay");
-        require(both(baseRewardMultiplier > 0, baseRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
-        require(both(maxRewardMultiplier >= HUNDRED, maxRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-max-reward-multiplier");
-        require(gasAmountForExecution > 0, "MinMaxRewardsAdjuster/null-gas-amount");
+        require(receiver != address(0), "FixedRewardsAdjuster/null-receiver");
+        require(updateDelay > 0, "FixedRewardsAdjuster/null-update-delay");
+        require(both(fixedRewardMultiplier > 0, fixedRewardMultiplier <= THOUSAND), "FixedRewardsAdjuster/invalid-base-reward-multiplier");
+        require(gasAmountForExecution > 0, "FixedRewardsAdjuster/null-gas-amount");
 
         // Check that the receiver hasn't been already added
         FundingReceiver storage newReceiver = fundingReceivers[receiver][targetFunctionSignature];
-        require(newReceiver.lastUpdateTime == 0, "MinMaxRewardsAdjuster/receiver-already-added");
+        require(newReceiver.lastUpdateTime == 0, "FixedRewardsAdjuster/receiver-already-added");
 
         // Add the receiver's data
         newReceiver.lastUpdateTime        = now;
         newReceiver.updateDelay           = updateDelay;
         newReceiver.gasAmountForExecution = gasAmountForExecution;
-        newReceiver.baseRewardMultiplier  = baseRewardMultiplier;
-        newReceiver.maxRewardMultiplier   = maxRewardMultiplier;
+        newReceiver.fixedRewardMultiplier = fixedRewardMultiplier;
 
         emit AddFundingReceiver(
           receiver,
           targetFunctionSignature,
           updateDelay,
           gasAmountForExecution,
-          baseRewardMultiplier,
-          maxRewardMultiplier
+          fixedRewardMultiplier
         );
     }
     /*
@@ -264,7 +252,7 @@ contract MinMaxRewardsAdjuster {
     */
     function removeFundingReceiver(address receiver, bytes4 targetFunctionSignature) external isAuthorized {
         // Check that the receiver is still stored and then delete it
-        require(fundingReceivers[receiver][targetFunctionSignature].lastUpdateTime > 0, "MinMaxRewardsAdjuster/non-existent-receiver");
+        require(fundingReceivers[receiver][targetFunctionSignature].lastUpdateTime > 0, "FixedRewardsAdjuster/non-existent-receiver");
         delete(fundingReceivers[receiver][targetFunctionSignature]);
         emit RemoveFundingReceiver(receiver, targetFunctionSignature);
     }
@@ -277,7 +265,7 @@ contract MinMaxRewardsAdjuster {
     */
     function recomputeRewards(address receiver, bytes4 targetFunctionSignature) external {
         FundingReceiver storage targetReceiver = fundingReceivers[receiver][targetFunctionSignature];
-        require(both(targetReceiver.lastUpdateTime > 0, addition(targetReceiver.lastUpdateTime, targetReceiver.updateDelay) <= now), "MinMaxRewardsAdjuster/wait-more");
+        require(both(targetReceiver.lastUpdateTime > 0, addition(targetReceiver.lastUpdateTime, targetReceiver.updateDelay) <= now), "FixedRewardsAdjuster/wait-more");
 
         // Update last time
         targetReceiver.lastUpdateTime = now;
@@ -286,27 +274,23 @@ contract MinMaxRewardsAdjuster {
         uint256 gasPrice = gasPriceOracle.read();
         uint256 ethPrice = ethPriceOracle.read();
 
-        // Calculate the base fiat value scaled to RAY
-        uint256 baseRewardFiatValue = multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice);
+        // Calculate the fixed fiat value scaled to RAY
+        uint256 fixedRewardFiatValue = multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice);
 
-        // Calculate the base reward expressed in system coins
-        uint256 newBaseReward = divide(multiply(baseRewardFiatValue, RAY), oracleRelayer.redemptionPrice());
-        newBaseReward         = divide(multiply(newBaseReward, targetReceiver.baseRewardMultiplier), THOUSAND);
+        // Calculate the fixed reward expressed in system coins
+        uint256 newFixedReward = divide(multiply(fixedRewardFiatValue, RAY), oracleRelayer.redemptionPrice());
+        newFixedReward         = divide(multiply(newFixedReward, targetReceiver.fixedRewardMultiplier), THOUSAND);
+        require(newFixedReward > 0, "FixedRewardsAdjuster/null-fixed-reward");
 
-        // Compute the new max reward and check both rewards
-        uint256 newMaxReward = divide(multiply(newBaseReward, targetReceiver.maxRewardMultiplier), THOUSAND);
-        require(both(newBaseReward > 0, newMaxReward > 0), "MinMaxRewardsAdjuster/null-new-rewards");
+        // Notify the treasury param adjuster about the new fixed reward
+        treasuryParamAdjuster.adjustMaxReward(receiver, targetFunctionSignature, newFixedReward);
 
-        // Notify the treasury param adjuster about the new max reward
-        treasuryParamAdjuster.adjustMaxReward(receiver, targetFunctionSignature, newMaxReward);
-
-        // Approve the max reward in the treasury
-        treasury.setPerBlockAllowance(receiver, multiply(newMaxReward, RAY));
+        // Approve the reward in the treasury
+        treasury.setPerBlockAllowance(receiver, multiply(newFixedReward, RAY));
 
         // Set the new rewards inside the receiver contract
-        TreasuryFundableLike(receiver).modifyParameters("maxUpdateCallerReward", newMaxReward);
-        TreasuryFundableLike(receiver).modifyParameters("baseUpdateCallerReward", newBaseReward);
+        TreasuryFundableLike(receiver).modifyParameters("fixedReward", newFixedReward);
 
-        emit RecomputedRewards(receiver, newBaseReward, newMaxReward);
+        emit RecomputedRewards(receiver, newFixedReward);
     }
 }
