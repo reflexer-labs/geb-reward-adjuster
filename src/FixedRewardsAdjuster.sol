@@ -192,6 +192,7 @@ contract FixedRewardsAdjuster {
         require(fundingReceiver.lastUpdateTime > 0, "FixedRewardsAdjuster/non-existent-receiver");
 
         if (parameter == "gasAmountForExecution") {
+            require(val < block.gaslimit, "FixedRewardsAdjuster/invalid-gas-amount-for-exec");
             fundingReceiver.gasAmountForExecution = val;
         }
         else if (parameter == "updateDelay") {
@@ -226,6 +227,7 @@ contract FixedRewardsAdjuster {
         require(updateDelay > 0, "FixedRewardsAdjuster/null-update-delay");
         require(both(fixedRewardMultiplier > 0, fixedRewardMultiplier <= THOUSAND), "FixedRewardsAdjuster/invalid-base-reward-multiplier");
         require(gasAmountForExecution > 0, "FixedRewardsAdjuster/null-gas-amount");
+        require(gasAmountForExecution < block.gaslimit, "FixedRewardsAdjuster/large-gas-amount-for-exec");
 
         // Check that the receiver hasn't been already added
         FundingReceiver storage newReceiver = fundingReceivers[receiver][targetFunctionSignature];

@@ -196,6 +196,7 @@ contract MinMaxRewardsAdjuster {
         require(fundingReceiver.lastUpdateTime > 0, "MinMaxRewardsAdjuster/non-existent-receiver");
 
         if (parameter == "gasAmountForExecution") {
+            require(val < block.gaslimit, "MinMaxRewardsAdjuster/invalid-gas-amount-for-exec");
             fundingReceiver.gasAmountForExecution = val;
         }
         else if (parameter == "updateDelay") {
@@ -236,6 +237,7 @@ contract MinMaxRewardsAdjuster {
         require(both(baseRewardMultiplier > 0, baseRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
         require(both(maxRewardMultiplier >= HUNDRED, maxRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-max-reward-multiplier");
         require(gasAmountForExecution > 0, "MinMaxRewardsAdjuster/null-gas-amount");
+        require(gasAmountForExecution < block.gaslimit, "MinMaxRewardsAdjuster/large-gas-amount-for-exec");
 
         // Check that the receiver hasn't been already added
         FundingReceiver storage newReceiver = fundingReceivers[receiver][targetFunctionSignature];
