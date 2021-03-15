@@ -199,7 +199,7 @@ contract FixedRewardsAdjuster {
             fundingReceiver.updateDelay = val;
         }
         else if (parameter == "fixedRewardMultiplier") {
-            require(both(val > 0, val <= THOUSAND), "FixedRewardsAdjuster/invalid-base-reward-multiplier");
+            require(both(val >= HUNDRED, val <= THOUSAND), "FixedRewardsAdjuster/invalid-fixed-reward-multiplier");
             fundingReceiver.fixedRewardMultiplier = val;
         }
         else revert("FixedRewardsAdjuster/modify-unrecognized-params");
@@ -225,7 +225,7 @@ contract FixedRewardsAdjuster {
         // Checks
         require(receiver != address(0), "FixedRewardsAdjuster/null-receiver");
         require(updateDelay > 0, "FixedRewardsAdjuster/null-update-delay");
-        require(both(fixedRewardMultiplier > 0, fixedRewardMultiplier <= THOUSAND), "FixedRewardsAdjuster/invalid-base-reward-multiplier");
+        require(both(fixedRewardMultiplier >= HUNDRED, fixedRewardMultiplier <= THOUSAND), "FixedRewardsAdjuster/invalid-fixed-reward-multiplier");
         require(gasAmountForExecution > 0, "FixedRewardsAdjuster/null-gas-amount");
         require(gasAmountForExecution < block.gaslimit, "FixedRewardsAdjuster/large-gas-amount-for-exec");
 
@@ -276,12 +276,12 @@ contract FixedRewardsAdjuster {
         uint256 gasPrice = gasPriceOracle.read();
         uint256 ethPrice = ethPriceOracle.read();
 
-        // Calculate the fixed fiat value scaled to RAY
-        uint256 fixedRewardFiatValue = multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice);
+        // Calculate the fixed fiat value
+        uint256 fixedRewardDenominatedValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), WAD), ethPrice);
 
         // Calculate the fixed reward expressed in system coins
-        uint256 newFixedReward = divide(multiply(fixedRewardFiatValue, RAY), oracleRelayer.redemptionPrice());
-        newFixedReward         = divide(multiply(newFixedReward, targetReceiver.fixedRewardMultiplier), THOUSAND);
+        uint256 newFixedReward = divide(multiply(fixedRewardDenominatedValue, RAY), oracleRelayer.redemptionPrice());
+        newFixedReward         = divide(multiply(newFixedReward, targetReceiver.fixedRewardMultiplier), HUNDRED);
         require(newFixedReward > 0, "FixedRewardsAdjuster/null-fixed-reward");
 
         // Notify the treasury param adjuster about the new fixed reward

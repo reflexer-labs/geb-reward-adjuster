@@ -151,10 +151,6 @@ contract MinMaxRewardsAdjuster {
         z = x / y;
         require(z <= x, "MinMaxRewardsAdjuster/div-invalid");
     }
-    function wdivide(uint x, uint y) public pure returns (uint z) {
-        require(y > 0, "MinMaxRewardsAdjuster/div-y-null");
-        z = multiply(x, WAD) / y;
-    }
 
     // --- Administration ---
     /*
@@ -203,11 +199,13 @@ contract MinMaxRewardsAdjuster {
             fundingReceiver.updateDelay = val;
         }
         else if (parameter == "baseRewardMultiplier") {
-            require(both(val > 0, val <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
+            require(both(val >= HUNDRED, val <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
+            require(val <= fundingReceiver.maxRewardMultiplier, "MinMaxRewardsAdjuster/max-mul-smaller-than-min-mul");
             fundingReceiver.baseRewardMultiplier = val;
         }
         else if (parameter == "maxRewardMultiplier") {
             require(both(val >= HUNDRED, val <= THOUSAND), "MinMaxRewardsAdjuster/invalid-max-reward-multiplier");
+            require(val >= fundingReceiver.baseRewardMultiplier, "MinMaxRewardsAdjuster/max-mul-smaller-than-min-mul");
             fundingReceiver.maxRewardMultiplier = val;
         }
         else revert("MinMaxRewardsAdjuster/modify-unrecognized-params");
@@ -234,8 +232,9 @@ contract MinMaxRewardsAdjuster {
         // Checks
         require(receiver != address(0), "MinMaxRewardsAdjuster/null-receiver");
         require(updateDelay > 0, "MinMaxRewardsAdjuster/null-update-delay");
-        require(both(baseRewardMultiplier > 0, baseRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
+        require(both(baseRewardMultiplier >= HUNDRED, baseRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-base-reward-multiplier");
         require(both(maxRewardMultiplier >= HUNDRED, maxRewardMultiplier <= THOUSAND), "MinMaxRewardsAdjuster/invalid-max-reward-multiplier");
+        require(maxRewardMultiplier >= baseRewardMultiplier, "MinMaxRewardsAdjuster/max-mul-smaller-than-min-mul");
         require(gasAmountForExecution > 0, "MinMaxRewardsAdjuster/null-gas-amount");
         require(gasAmountForExecution < block.gaslimit, "MinMaxRewardsAdjuster/large-gas-amount-for-exec");
 
@@ -288,15 +287,15 @@ contract MinMaxRewardsAdjuster {
         uint256 gasPrice = gasPriceOracle.read();
         uint256 ethPrice = ethPriceOracle.read();
 
-        // Calculate the base fiat value scaled to RAY
-        uint256 baseRewardFiatValue = multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice);
+        // Calculate the base fiat value
+        uint256 baseRewardFiatValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), WAD), ethPrice);
 
         // Calculate the base reward expressed in system coins
         uint256 newBaseReward = divide(multiply(baseRewardFiatValue, RAY), oracleRelayer.redemptionPrice());
-        newBaseReward         = divide(multiply(newBaseReward, targetReceiver.baseRewardMultiplier), THOUSAND);
+        newBaseReward         = divide(multiply(newBaseReward, targetReceiver.baseRewardMultiplier), HUNDRED);
 
         // Compute the new max reward and check both rewards
-        uint256 newMaxReward = divide(multiply(newBaseReward, targetReceiver.maxRewardMultiplier), THOUSAND);
+        uint256 newMaxReward = divide(multiply(newBaseReward, targetReceiver.maxRewardMultiplier), HUNDRED);
         require(both(newBaseReward > 0, newMaxReward > 0), "MinMaxRewardsAdjuster/null-new-rewards");
 
         // Notify the treasury param adjuster about the new max reward
