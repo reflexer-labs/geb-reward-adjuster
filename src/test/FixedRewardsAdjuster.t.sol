@@ -38,6 +38,22 @@ contract Usr {
     function recomputeRewards(address, bytes4) public { callAdjuster(msg.data); }
 }
 
+contract TreasuryFundable is MandatoryFixedTreasuryReimbursement {
+
+    constructor(
+        address treasury,
+        uint reward
+    ) public MandatoryFixedTreasuryReimbursement (
+        treasury,
+        reward
+    ) {}
+
+    function modifyParameters(bytes32 param, uint val) public {
+        if (param == "fixedReward") fixedReward = val;
+        else revert("unrecognized param");
+    }
+}
+
 contract Feed {
     uint price;
 
@@ -62,7 +78,7 @@ contract FixedRewardsAdjusterTest is DSTest {
     Coin systemCoin;
     CoinJoin systemCoinA;
     SFTreasuryCoreParamAdjuster treasuryParamAdjuster;
-    MandatoryFixedTreasuryReimbursement treasuryFundable;
+    TreasuryFundable treasuryFundable;
     Usr usr;
 
     uint256 public updateDelay = 1 days;
@@ -73,6 +89,9 @@ contract FixedRewardsAdjusterTest is DSTest {
     uint256 public minMinimumFunds = 1 ether;
     uint256 public pullFundsMinThresholdMultiplier = 100;
     uint256 public minPullFundsThreshold = 2 ether;
+
+    uint256 public constant WAD            = 10**18;
+    uint256 public constant RAY            = 10**27;
 
     function setUp() public {
         hevm = Hevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
@@ -85,7 +104,7 @@ contract FixedRewardsAdjusterTest is DSTest {
         oracleRelayer = new OracleRelayer(address(safeEngine));
         ethPriceOracle = new Feed(1000 ether);
         gasPriceOracle = new Feed(100 * 10**9); // 100 gwei
-        treasuryFundable = new MandatoryFixedTreasuryReimbursement(address(treasury), 1 ether);
+        treasuryFundable = new TreasuryFundable(address(treasury), 1 ether);
 
         treasuryParamAdjuster = new SFTreasuryCoreParamAdjuster(
             address(treasury),
@@ -203,72 +222,72 @@ contract FixedRewardsAdjusterTest is DSTest {
 
     function test_modify_parameters_FundingReceiver() public {
         // adding a funding receiver
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "gasAmountForExecution", 300);
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "updateDelay", 2 days);
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "fixedRewardMultiplier", 200);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", 300);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "updateDelay", 2 days);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "fixedRewardMultiplier", 200);
 
         (,
         uint gasAmountForExecution,
-        uint updateDelay,
+        uint updateDelay_,
         uint fixedRewardMultiplier
-        ) = adjuster.fundingReceivers(address(address(treasuryFundable)), bytes4("0x2"));
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
         assertEq(gasAmountForExecution, 300);
-        assertEq(updateDelay, 2 days);
+        assertEq(updateDelay_, 2 days);
         assertEq(fixedRewardMultiplier, 200);
     }
 
     function testFail_modify_parameters_FundingReceiver_invalid_param() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "invalid", 300);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "invalid", 300);
     }
 
     function testFail_modify_parameters_FundingReceiver_unauthorized() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        usr.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "gasAmountForExecution", 300);
+        usr.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", 300);
     }
 
     function testFail_modify_parameters_FundingReceiver_null_param() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "gasAmountForExecution", 0);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", 0);
     }
 
     function testFail_modify_parameters_FundingReceiver_invalid_gasAmountForExecution() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "gasAmountForExecution", block.gaslimit);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", block.gaslimit);
     }
 
     function testFail_modify_parameters_FundingReceiver_invalid_fixedRewardMultiplier() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "fixedRewardMultiplier", 99);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "fixedRewardMultiplier", 99);
     }
 
     function testFail_modify_parameters_FundingReceiver_invalid_fixedRewardMultiplier2() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        adjuster.modifyParameters(address(address(treasuryFundable)), bytes4("0x2"), "fixedRewardMultiplier", 1001);
+        adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "fixedRewardMultiplier", 1001);
     }
 
     function test_add_funding_receiver() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         (
-        uint lastUpdateTime,
+        uint lastUpdateTime_,
         uint gasAmountForExecution,
-        uint updateDelay,
+        uint updateDelay_,
         uint fixedRewardMultiplier
-        ) = adjuster.fundingReceivers(address(address(treasuryFundable)), bytes4("0x2"));
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
-        assertEq(lastUpdateTime, now);
+        assertEq(lastUpdateTime_, now);
         assertEq(gasAmountForExecution, 10**6);
-        assertEq(updateDelay, 1 days);
+        assertEq(updateDelay_, 1 days);
         assertEq(fixedRewardMultiplier, 100);
     }
 
@@ -277,64 +296,85 @@ contract FixedRewardsAdjusterTest is DSTest {
     }
 
     function testFail_add_funding_receiver_null_updateDelay() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 0, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 0, 10**6, 100);
     }
 
     function testFail_add_funding_receiver_invalid_fixedRewardMultiplier() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 99);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 99);
     }
 
     function testFail_add_funding_receiver_invalid_fixedRewardMultiplier2() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 1001);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 1001);
     }
 
     function testFail_add_funding_receiver_null_gasAmountForExecution() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 0, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 0, 100);
     }
 
     function testFail_add_funding_receiver_invalid_gasAmountForExecution() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, block.gaslimit, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, block.gaslimit, 100);
     }
 
     function testFail_add_funding_receiver_already_exists() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
     }
 
     function testFail_add_funding_receiver_unauthorized() public {
-        usr.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        usr.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
     }
 
     function test_remove_funding_receiver() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
-        (uint lastUpdateTime,,,) = adjuster.fundingReceivers(address(address(treasuryFundable)), bytes4("0x2"));
-        assertEq(lastUpdateTime, now);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+        (uint lastUpdateTime_,,,) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+        assertEq(lastUpdateTime_, now);
 
-        adjuster.removeFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"));
-        (lastUpdateTime,,,) = adjuster.fundingReceivers(address(address(treasuryFundable)), bytes4("0x2"));
-        assertEq(lastUpdateTime, 0);
+        adjuster.removeFundingReceiver(address(treasuryFundable), bytes4("0x2"));
+        (lastUpdateTime_,,,) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+        assertEq(lastUpdateTime_, 0);
     }
 
     function testFail_remove_funding_receiver_unexistent() public {
-        adjuster.removeFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"));
+        adjuster.removeFundingReceiver(address(treasuryFundable), bytes4("0x2"));
     }
 
     function testFail_remove_funding_receiver_unauthorized() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
-        usr.removeFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"));
+        usr.removeFundingReceiver(address(treasuryFundable), bytes4("0x2"));
     }
 
     function test_recompute_rewards() public {
-        adjuster.addFundingReceiver(address(address(treasuryFundable)), bytes4("0x2"), 1 days, 10**6, 100);
-        treasuryParamAdjuster.addFundedFunction(address(address(treasuryFundable)), bytes4("0x2"), 1);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+        treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
 
         hevm.warp(now + 1 days);
-        adjuster.recomputeRewards(address(address(treasuryFundable)), bytes4("0x2"));
+        adjuster.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
+
+        (
+        uint lastUpdateTime_,
+        uint gasAmountForExecution,
+        uint updateDelay_,
+        uint fixedRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        assertEq(lastUpdateTime_, now);
+        assertEq(gasAmountForExecution, 10**6);
+        assertEq(updateDelay_, 1 days);
+        assertEq(fixedRewardMultiplier, 100);
+
+        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fixedRewardMultiplier / 100;
+
+        assertEq(treasuryFundable.fixedReward(), newFixedReward);
+
+        (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
+        assertEq(perBlockAllownace, newFixedReward * RAY);
+
+        (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
+        assertEq(latestMaxReward, newFixedReward);
+        assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newFixedReward);
     }
-
-
-
 }
 
 
