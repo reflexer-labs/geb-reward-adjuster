@@ -66,6 +66,10 @@ contract Feed {
     function read() public view returns (uint) {
         return price;
     }
+
+    function write(uint val) public {
+        price = val;
+    }
 }
 
 contract MinMaxRewardsAdjusterTest is DSTest {
@@ -376,6 +380,50 @@ contract MinMaxRewardsAdjusterTest is DSTest {
 
         assertEq(lastUpdateTime_, now);
         assertEq(gasAmountForExecution, 10**6);
+        assertEq(updateDelay_, 1 days);
+        assertEq(baseRewardMultiplier, 100);
+        assertEq(maxRewardMultiplier, 101);
+
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
+
+        assertEq(treasuryFundable.baseUpdateCallerReward(), newBaseReward);
+        assertEq(treasuryFundable.maxUpdateCallerReward(), newMaxReward);
+
+        (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
+        assertEq(perBlockAllownace, newMaxReward * RAY);
+
+        (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
+        assertEq(latestMaxReward, newMaxReward);
+        assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newMaxReward);
+    }
+
+    function max(uint a, uint b) internal pure returns (uint) {
+        return a > b ? a : b;
+    }
+
+    function test_recompute_rewards_fuzz(uint gasPrice, uint ethPrice, uint gasAmountForExecution) public {
+        gasPrice = max(gasPrice % (10000 * 10**9), 1); // 1 to 10k gwei
+        ethPrice = max(ethPrice % (50000 * 10**18), 1 ether); // 1 to 50k
+        gasAmountForExecution = max(gasAmountForExecution % block.gaslimit, 1); // non null up to gas limit
+
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, gasAmountForExecution, 100, 101);
+        treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
+
+        hevm.warp(now + 1 days);
+        adjuster.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
+
+        (
+            uint lastUpdateTime_,
+            uint gasAmountForExecution_,
+            uint updateDelay_,
+            uint baseRewardMultiplier,
+            uint maxRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        assertEq(lastUpdateTime_, now);
+        assertEq(gasAmountForExecution_, gasAmountForExecution);
         assertEq(updateDelay_, 1 days);
         assertEq(baseRewardMultiplier, 100);
         assertEq(maxRewardMultiplier, 101);

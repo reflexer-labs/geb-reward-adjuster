@@ -64,6 +64,10 @@ contract Feed {
     function read() public view returns (uint) {
         return price;
     }
+
+    function write(uint val) public {
+        price = val;
+    }
 }
 
 contract FixedRewardsAdjusterTest is DSTest {
@@ -360,6 +364,48 @@ contract FixedRewardsAdjusterTest is DSTest {
 
         assertEq(lastUpdateTime_, now);
         assertEq(gasAmountForExecution, 10**6);
+        assertEq(updateDelay_, 1 days);
+        assertEq(fixedRewardMultiplier, 100);
+
+        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fixedRewardMultiplier / 100;
+
+        assertEq(treasuryFundable.fixedReward(), newFixedReward);
+
+        (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
+        assertEq(perBlockAllownace, newFixedReward * RAY);
+
+        (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
+        assertEq(latestMaxReward, newFixedReward);
+        assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newFixedReward);
+    }
+
+    function max(uint a, uint b) internal pure returns (uint) {
+        return a > b ? a : b;
+    }
+
+    function test_recompute_rewards_fuzz(uint gasPrice, uint ethPrice, uint gasAmountForExecution) public {
+        gasPrice = max(gasPrice % (10000 * 10**9), 10**8); // .1 gwei to 10k gwei
+        ethPrice = max(ethPrice % (50000 * 10**18), 1 ether); // 1 to 50k
+        gasAmountForExecution = max(gasAmountForExecution % block.gaslimit, 10000); // 10k to block gas limit (currently 12.5mm)
+
+        ethPriceOracle.write(ethPrice);
+        gasPriceOracle.write(gasPrice);
+
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, gasAmountForExecution, 100);
+        treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
+
+        hevm.warp(now + 1 days);
+        adjuster.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
+        (
+            uint lastUpdateTime_,
+            uint gasAmountForExecution_,
+            uint updateDelay_,
+            uint fixedRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        assertEq(lastUpdateTime_, now);
+        assertEq(gasAmountForExecution_, gasAmountForExecution);
         assertEq(updateDelay_, 1 days);
         assertEq(fixedRewardMultiplier, 100);
 
