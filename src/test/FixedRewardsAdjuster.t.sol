@@ -8,7 +8,7 @@ import {Coin} from "geb/Coin.sol";
 import "geb/SAFEEngine.sol";
 import {CoinJoin} from "geb/BasicTokenAdapters.sol";
 import {SFTreasuryCoreParamAdjuster} from "geb-treasury-core-param-adjuster/SFTreasuryCoreParamAdjuster.sol";
-import {MandatoryFixedTreasuryReimbursement} from "geb-treasury-reimbursement/MandatoryFixedTreasuryReimbursement.sol";
+import {MandatoryFixedTreasuryReimbursement} from "geb-treasury-reimbursement/reimbursement/single/MandatoryFixedTreasuryReimbursement.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
