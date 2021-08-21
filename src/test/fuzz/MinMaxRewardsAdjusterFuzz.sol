@@ -2,13 +2,15 @@ pragma solidity 0.6.7;
 
 import { DSTest } from "../../../lib/geb-treasury-core-param-adjuster/lib/geb-treasuries/lib/geb/lib/ds-token/lib/ds-test/src/test.sol";
 import {SFTreasuryCoreParamAdjuster} from "../../../lib/geb-treasury-core-param-adjuster/src/SFTreasuryCoreParamAdjuster.sol";
-import "./FixedRewardsAdjusterMock.sol";
+import "./MinMaxRewardsAdjusterMock.sol";
 
 contract TreasuryFundableMock {
-    uint public fixedReward;
+    uint public maxUpdateCallerReward;
+    uint public baseUpdateCallerReward;
 
     function modifyParameters(bytes32 param, uint val) public {
-        if (param == "fixedReward") fixedReward = val;
+        if (param == "maxUpdateCallerReward") maxUpdateCallerReward = val;
+        else if (param == "baseUpdateCallerReward") baseUpdateCallerReward = val;
         else revert("unrecognized param");
     }
 }
@@ -99,11 +101,11 @@ contract TokenMock {
 }
 
 // @notice Fuzz the whole thing, failures will show bounds (run with checkAsserts: on)
-contract Fuzz is FixedRewardsAdjusterMock {
+contract Fuzz is MinMaxRewardsAdjusterMock {
 
     TreasuryFundableMock treasuryFundable;
 
-    constructor() FixedRewardsAdjusterMock(
+    constructor() MinMaxRewardsAdjusterMock(
             address(new OracleRelayerMock()),
             address(new StabilityFeeTreasuryMock()),
             address(3),                             // gasPriceOracle
@@ -140,32 +142,34 @@ contract Fuzz is FixedRewardsAdjusterMock {
         assert(oracleRelayer.redemptionPrice() == val);
     }
 
-    function fuzz_funding_receiver(uint gasAmountForExecution, uint fixedRewardMultiplier) public {
+    function fuzz_funding_receiver(uint gasAmountForExecution, uint baseRewardMultiplier, uint maxRewardMultiplier) public {
         gasAmountForExecution = max(gasAmountForExecution, 10000); // minimum 10k
-        fixedRewardMultiplier = max(fixedRewardMultiplier % 1000, 100); // all allowed values (100 ~ 1000)
+        baseRewardMultiplier = max(baseRewardMultiplier % 1000, 100); // all allowed values (100 ~ 1000)
+        maxRewardMultiplier = max(max(maxRewardMultiplier % 1000, 100), baseRewardMultiplier); // all allowed values (100 ~ 1000)
         // adding one funding receiver to force execution of recompute_rewards
         FundingReceiver storage newReceiver = fundingReceivers[address(treasuryFundable)][bytes4("0x2")];
-        // require(newReceiver.lastUpdateTime == 0, "FixedRewardsAdjuster/receiver-already-added");
+        require(newReceiver.lastUpdateTime == 0, "FixedRewardsAdjuster/receiver-already-added");
 
         // Add the receiver's data
         newReceiver.lastUpdateTime        = now - 10 days;
         newReceiver.updateDelay           = 1;
         newReceiver.gasAmountForExecution = gasAmountForExecution;
-        newReceiver.fixedRewardMultiplier = fixedRewardMultiplier;
+        newReceiver.baseRewardMultiplier = baseRewardMultiplier;
+        newReceiver.maxRewardMultiplier = maxRewardMultiplier;
     }
 
     function force_recompute_rewards() public {
         this.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
 
-        uint fixedRewardDenominatedValue = gasPriceOracle.read() * fundingReceivers[address(treasuryFundable)][bytes4("0x2")].gasAmountForExecution * WAD / ethPriceOracle.read();
-        uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fundingReceivers[address(treasuryFundable)][bytes4("0x2")].fixedRewardMultiplier / 100;
+        uint baseRewardFiatValue = gasPriceOracle.read() * fundingReceivers[address(treasuryFundable)][bytes4("0x2")].gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * fundingReceivers[address(treasuryFundable)][bytes4("0x2")].baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * fundingReceivers[address(treasuryFundable)][bytes4("0x2")].maxRewardMultiplier / 100;
 
-        assert(treasuryFundable.fixedReward() == newFixedReward);
+        assert(treasuryFundable.baseUpdateCallerReward() == newBaseReward);
+        assert(treasuryFundable.maxUpdateCallerReward() == newMaxReward);
 
         (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
-        assert(perBlockAllownace == newFixedReward * RAY);
-
-        assert(TreasuryParamAdjusterMock(address(treasuryParamAdjuster)).lastUpdateTime() == now);
+        assert(perBlockAllownace == newMaxReward * RAY);
     }
 }
 
@@ -176,8 +180,8 @@ contract FuzzTest is Fuzz, DSTest {
         hevm.warp(604411200);
     }
 
-    function test_fuzz_setup() public {
-        this.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+    function test_fuzz_setup_minmax() public {
+        this.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100, 100);
         hevm.warp(now + 1 days);
         this.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
 
@@ -185,20 +189,24 @@ contract FuzzTest is Fuzz, DSTest {
         uint lastUpdateTime_,
         uint gasAmountForExecution,
         uint updateDelay_,
-        uint fixedRewardMultiplier
+        uint baseRewardMultiplier,
+        uint maxRewardMultiplier
         ) = this.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
         assertEq(lastUpdateTime_, now);
         assertEq(gasAmountForExecution, 10**6);
         assertEq(updateDelay_, 1 days);
-        assertEq(fixedRewardMultiplier, 100);
+        assertEq(baseRewardMultiplier, 100);
+        assertEq(maxRewardMultiplier, 100);
 
-        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
-        uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fixedRewardMultiplier / 100;
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
 
-        assertEq(treasuryFundable.fixedReward(), newFixedReward);
+        assertEq(treasuryFundable.baseUpdateCallerReward(), newBaseReward);
+        assertEq(treasuryFundable.maxUpdateCallerReward(), newMaxReward);
 
         (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
-        assertEq(perBlockAllownace, newFixedReward * RAY);
+        assertEq(perBlockAllownace, newMaxReward * RAY);
     }
 }

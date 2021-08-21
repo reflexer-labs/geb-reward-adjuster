@@ -403,10 +403,13 @@ contract MinMaxRewardsAdjusterTest is DSTest {
         return a > b ? a : b;
     }
 
-    function test_recompute_rewards_fuzz(uint gasPrice, uint ethPrice, uint gasAmountForExecution) public {
-        gasPrice = max(gasPrice % (10000 * 10**9), 1); // 1 to 10k gwei
+    function test_recompute_rewards_fuzz_minmax(uint gasPrice, uint ethPrice, uint gasAmountForExecution) public {
+        gasPrice = max(gasPrice % (10000 * 10**9), 10**7); // .001 to 10k gwei
         ethPrice = max(ethPrice % (50000 * 10**18), 1 ether); // 1 to 50k
         gasAmountForExecution = max(gasAmountForExecution % block.gaslimit, 1); // non null up to gas limit
+
+        ethPriceOracle.write(ethPrice);
+        gasPriceOracle.write(gasPrice);
 
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, gasAmountForExecution, 100, 101);
         treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
