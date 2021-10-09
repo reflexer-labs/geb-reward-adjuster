@@ -11,7 +11,7 @@ import "geb/SAFEEngine.sol";
 import {CoinJoin} from "geb/BasicTokenAdapters.sol";
 
 import {SFTreasuryCoreParamAdjuster} from "geb-treasury-core-param-adjuster/SFTreasuryCoreParamAdjuster.sol";
-import {MandatoryFixedTreasuryReimbursement} from "geb-treasury-reimbursement/MandatoryFixedTreasuryReimbursement.sol";
+import {MandatoryFixedTreasuryReimbursement} from "geb-treasury-reimbursement/reimbursement/single/MandatoryFixedTreasuryReimbursement.sol";
 
 abstract contract Hevm {
     function warp(uint256) virtual public;
@@ -223,7 +223,7 @@ contract FixedRewardsAdjusterTest is DSTest {
         usr.modifyParameters("treasury", address(0x123));
     }
 
-    function test_modify_parameters_FundingReceiver() public {
+    function test_modify_parameters_fundingReceiver() public {
         // adding a funding receiver
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
@@ -242,37 +242,37 @@ contract FixedRewardsAdjusterTest is DSTest {
         assertEq(fixedRewardMultiplier, 200);
     }
 
-    function testFail_modify_parameters_FundingReceiver_invalid_param() public {
+    function testFail_modify_parameters_fundingReceiver_invalid_param() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "invalid", 300);
     }
 
-    function testFail_modify_parameters_FundingReceiver_unauthorized() public {
+    function testFail_modify_parameters_fundingReceiver_unauthorized() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         usr.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", 300);
     }
 
-    function testFail_modify_parameters_FundingReceiver_null_param() public {
+    function testFail_modify_parameters_fundingReceiver_null_param() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", 0);
     }
 
-    function testFail_modify_parameters_FundingReceiver_invalid_gasAmountForExecution() public {
+    function testFail_modify_parameters_fundingReceiver_invalid_gasAmountForExecution() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "gasAmountForExecution", block.gaslimit);
     }
 
-    function testFail_modify_parameters_FundingReceiver_invalid_fixedRewardMultiplier() public {
+    function testFail_modify_parameters_fundingReceiver_invalid_fixedRewardMultiplier() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "fixedRewardMultiplier", 99);
     }
 
-    function testFail_modify_parameters_FundingReceiver_invalid_fixedRewardMultiplier2() public {
+    function testFail_modify_parameters_fundingReceiver_invalid_fixedRewardMultiplier2() public {
         adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
 
         adjuster.modifyParameters(address(treasuryFundable), bytes4("0x2"), "fixedRewardMultiplier", 1001);
