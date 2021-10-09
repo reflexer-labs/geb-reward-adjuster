@@ -1,12 +1,15 @@
 pragma solidity 0.6.7;
 
 import "ds-test/test.sol";
+
 import "../FixedRewardsAdjuster.sol";
+
 import { OracleRelayer } from "geb/OracleRelayer.sol";
 import { StabilityFeeTreasury } from "geb/StabilityFeeTreasury.sol";
 import {Coin} from "geb/Coin.sol";
 import "geb/SAFEEngine.sol";
 import {CoinJoin} from "geb/BasicTokenAdapters.sol";
+
 import {SFTreasuryCoreParamAdjuster} from "geb-treasury-core-param-adjuster/SFTreasuryCoreParamAdjuster.sol";
 import {MandatoryFixedTreasuryReimbursement} from "geb-treasury-reimbursement/MandatoryFixedTreasuryReimbursement.sol";
 
@@ -376,6 +379,3 @@ contract FixedRewardsAdjusterTest is DSTest {
         assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newFixedReward);
     }
 }
-
-
-
