@@ -41,20 +41,37 @@ contract Usr {
 }
 
 contract TreasuryFundable is IncreasingTreasuryReimbursement {
+    event ModifyParameters(bytes32 parameter, uint256 val);
 
     constructor(
         address treasury
     ) public IncreasingTreasuryReimbursement (
         treasury,
-        1 ether,
-        2 ether,
+        1,
+        1,
         10**27
     ) {}
 
-    function modifyParameters(bytes32 param, uint val) public {
-        if (param == "maxUpdateCallerReward") maxUpdateCallerReward = val;
-        else if (param == "baseUpdateCallerReward") baseUpdateCallerReward = val;
-        else revert("unrecognized param");
+    function modifyParameters(bytes32 parameter, uint256 val) external {
+
+        if (parameter == "baseUpdateCallerReward") {
+          require(val <= maxUpdateCallerReward, "TreasuryFundable/invalid-base-caller-reward");
+          baseUpdateCallerReward = val;
+        }
+        else if (parameter == "maxUpdateCallerReward") {
+          require(val >= baseUpdateCallerReward, "TreasuryFundable/invalid-max-caller-reward");
+          maxUpdateCallerReward = val;
+        }
+        else if (parameter == "perSecondCallerRewardIncrease") {
+          require(val >= RAY, "TreasuryFundable/invalid-caller-reward-increase");
+          perSecondCallerRewardIncrease = val;
+        }
+        else if (parameter == "maxRewardIncreaseDelay") {
+          require(val > 0, "TreasuryFundable/invalid-max-increase-delay");
+          maxRewardIncreaseDelay = val;
+        }
+        else revert("TreasuryFundable/modify-unrecognized-param");
+        emit ModifyParameters(parameter, val);
     }
 }
 
@@ -395,5 +412,57 @@ contract MinMaxRewardsAdjusterTest is DSTest {
         (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
         assertEq(latestMaxReward, newMaxReward);
         assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newMaxReward);
+    }
+
+    function test_recompute_rewards_base_greater_than_prev_max() public {
+        // precalculating new rewards
+        (
+            , uint gasAmountForExecution,,
+            uint baseRewardMultiplier,
+            uint maxRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
+
+        treasuryFundable.modifyParameters("maxUpdateCallerReward", newBaseReward - 1);
+
+        test_recompute_rewards();
+    }
+
+    function test_recompute_rewards_max_lower_than_prev_base() public {
+        // precalculating new rewards
+        (
+            , uint gasAmountForExecution,,
+            uint baseRewardMultiplier,
+            uint maxRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
+
+        treasuryFundable.modifyParameters("baseUpdateCallerReward", newMaxReward + 1);
+
+        test_recompute_rewards();
+    }
+
+    function sort(uint[2] memory input) public returns (uint[2] memory) {
+        if (input[1] >= input[0]) return input;
+        return [input[1], input[0]];
+    }
+
+    function test_recompute_rewards(uint[2] memory previousRewards) public {
+        previousRewards = sort(previousRewards);
+        if (treasuryFundable.baseUpdateCallerReward() < previousRewards[1]) {
+            treasuryFundable.modifyParameters("maxUpdateCallerReward", previousRewards[1]);
+            treasuryFundable.modifyParameters("baseUpdateCallerReward", previousRewards[0]);
+        } else {
+            treasuryFundable.modifyParameters("baseUpdateCallerReward", previousRewards[0]);
+            treasuryFundable.modifyParameters("maxUpdateCallerReward", previousRewards[1]);
+        }
+
+        test_recompute_rewards();
     }
 }

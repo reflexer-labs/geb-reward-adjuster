@@ -305,8 +305,14 @@ contract MinMaxRewardsAdjuster {
         treasury.setPerBlockAllowance(receiver, multiply(newMaxReward, RAY));
 
         // Set the new rewards inside the receiver contract
-        TreasuryFundableLike(receiver).modifyParameters("maxUpdateCallerReward", newMaxReward);
-        TreasuryFundableLike(receiver).modifyParameters("baseUpdateCallerReward", newBaseReward);
+        if (TreasuryFundableLike(receiver).baseUpdateCallerReward() < newMaxReward) {
+            TreasuryFundableLike(receiver).modifyParameters("maxUpdateCallerReward", newMaxReward);
+            TreasuryFundableLike(receiver).modifyParameters("baseUpdateCallerReward", newBaseReward);
+        } else {
+            TreasuryFundableLike(receiver).modifyParameters("baseUpdateCallerReward", newBaseReward);
+            TreasuryFundableLike(receiver).modifyParameters("maxUpdateCallerReward", newMaxReward);
+        }
+
 
         emit RecomputedRewards(receiver, newBaseReward, newMaxReward);
     }
