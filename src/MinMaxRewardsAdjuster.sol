@@ -288,7 +288,7 @@ contract MinMaxRewardsAdjuster {
         uint256 ethPrice = ethPriceOracle.read();
 
         // Calculate the base fiat value
-        uint256 baseRewardFiatValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), WAD), ethPrice);
+        uint256 baseRewardFiatValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice), WAD);
 
         // Calculate the base reward expressed in system coins
         uint256 newBaseReward = divide(multiply(baseRewardFiatValue, RAY), oracleRelayer.redemptionPrice());

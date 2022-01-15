@@ -85,6 +85,10 @@ contract Feed {
     function read() public view returns (uint) {
         return price;
     }
+
+    function write(uint _price) public {
+        price = _price;
+    }
 }
 
 contract MinMaxRewardsAdjusterTest is DSTest {
@@ -379,7 +383,7 @@ contract MinMaxRewardsAdjusterTest is DSTest {
     }
 
     function test_recompute_rewards() public {
-        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100, 101);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 120, 180);
         treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
 
         hevm.warp(now + 1 days);
@@ -396,10 +400,43 @@ contract MinMaxRewardsAdjusterTest is DSTest {
         assertEq(lastUpdateTime_, now);
         assertEq(gasAmountForExecution, 10**6);
         assertEq(updateDelay_, 1 days);
-        assertEq(baseRewardMultiplier, 100);
-        assertEq(maxRewardMultiplier, 101);
+        assertEq(baseRewardMultiplier, 120);
+        assertEq(maxRewardMultiplier, 180);
 
-        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
+        uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
+        uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
+
+        assertEq(treasuryFundable.baseUpdateCallerReward(), newBaseReward);
+        assertEq(treasuryFundable.maxUpdateCallerReward(), newMaxReward);
+
+        (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
+        assertEq(perBlockAllownace, newMaxReward * RAY);
+
+        (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
+        assertEq(latestMaxReward, newMaxReward);
+        assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newMaxReward);
+    }
+
+    function test_recompute_rewards_fuzz(uint256 ethPrice, uint256 gasPrice) public {
+        ethPriceOracle.write(1 ether + ethPrice % 100000 ether);  // non null up to 100k
+        gasPriceOracle.write(100 + gasPrice % 10000 * 10**9); // non null up to 1k gwei
+
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100, 200);
+        treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
+
+        hevm.warp(now + 1 days);
+        adjuster.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
+
+        (
+            uint lastUpdateTime_,
+            uint gasAmountForExecution,
+            uint updateDelay_,
+            uint baseRewardMultiplier,
+            uint maxRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
         uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
         uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
 
@@ -422,7 +459,7 @@ contract MinMaxRewardsAdjusterTest is DSTest {
             uint maxRewardMultiplier
         ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
-        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
         uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
         uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
 
@@ -439,7 +476,7 @@ contract MinMaxRewardsAdjusterTest is DSTest {
             uint maxRewardMultiplier
         ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
-        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint baseRewardFiatValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
         uint newBaseReward = (baseRewardFiatValue * RAY / oracleRelayer.redemptionPrice()) * baseRewardMultiplier / 100;
         uint newMaxReward = newBaseReward * maxRewardMultiplier / 100;
 
