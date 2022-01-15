@@ -277,7 +277,7 @@ contract FixedRewardsAdjuster {
         uint256 ethPrice = ethPriceOracle.read();
 
         // Calculate the fixed fiat value
-        uint256 fixedRewardDenominatedValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), WAD), ethPrice);
+        uint256 fixedRewardDenominatedValue = divide(multiply(multiply(gasPrice, targetReceiver.gasAmountForExecution), ethPrice), WAD);
 
         // Calculate the fixed reward expressed in system coins
         uint256 newFixedReward = divide(multiply(fixedRewardDenominatedValue, RAY), oracleRelayer.redemptionPrice());

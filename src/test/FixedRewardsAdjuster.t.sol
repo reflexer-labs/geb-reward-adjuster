@@ -67,6 +67,10 @@ contract Feed {
     function read() public view returns (uint) {
         return price;
     }
+
+    function write(uint _price) public {
+        price = _price;
+    }
 }
 
 contract FixedRewardsAdjusterTest is DSTest {
@@ -105,7 +109,7 @@ contract FixedRewardsAdjusterTest is DSTest {
         systemCoinA = new CoinJoin(address(safeEngine), address(systemCoin));
         treasury = new StabilityFeeTreasury(address(safeEngine), address(0x1), address(systemCoinA));
         oracleRelayer = new OracleRelayer(address(safeEngine));
-        ethPriceOracle = new Feed(1000 ether);
+        ethPriceOracle = new Feed(3000 ether);
         gasPriceOracle = new Feed(100 * 10**9); // 100 gwei
         treasuryFundable = new TreasuryFundable(address(treasury), 1 ether);
 
@@ -348,7 +352,7 @@ contract FixedRewardsAdjusterTest is DSTest {
     }
 
     function test_recompute_rewards() public {
-        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**5, 130);
         treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
 
         hevm.warp(now + 1 days);
@@ -362,11 +366,42 @@ contract FixedRewardsAdjusterTest is DSTest {
         ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
 
         assertEq(lastUpdateTime_, now);
-        assertEq(gasAmountForExecution, 10**6);
+        assertEq(gasAmountForExecution, 10**5);
         assertEq(updateDelay_, 1 days);
-        assertEq(fixedRewardMultiplier, 100);
+        assertEq(fixedRewardMultiplier, 130);
 
-        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * WAD / ethPriceOracle.read();
+        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
+        uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fixedRewardMultiplier / 100;
+
+        assertEq(treasuryFundable.fixedReward(), newFixedReward);
+
+        (, uint perBlockAllownace) = treasury.getAllowance(address(treasuryFundable));
+        assertEq(perBlockAllownace, newFixedReward * RAY);
+
+        (, uint latestMaxReward) = treasuryParamAdjuster.whitelistedFundedFunctions(address(treasuryFundable), bytes4("0x2"));
+        assertEq(latestMaxReward, newFixedReward);
+        assertEq(treasuryParamAdjuster.dynamicRawTreasuryCapacity(), newFixedReward);
+    }
+
+    function test_recompute_rewards_fuzz(uint256 ethPrice, uint256 gasPrice) public {
+        ethPriceOracle.write(1 ether + ethPrice % 100000 ether);  // 1 up to 100k
+        gasPriceOracle.write(1 + gasPrice % 10000 * 10**9); // 1 up to 1k gwei
+
+
+        adjuster.addFundingReceiver(address(treasuryFundable), bytes4("0x2"), 1 days, 10**6, 100);
+        treasuryParamAdjuster.addFundedFunction(address(treasuryFundable), bytes4("0x2"), 1);
+
+        hevm.warp(now + 1 days);
+        adjuster.recomputeRewards(address(treasuryFundable), bytes4("0x2"));
+
+        (
+            uint lastUpdateTime_,
+            uint gasAmountForExecution,
+            uint updateDelay_,
+            uint fixedRewardMultiplier
+        ) = adjuster.fundingReceivers(address(treasuryFundable), bytes4("0x2"));
+
+        uint fixedRewardDenominatedValue = gasPriceOracle.read() * gasAmountForExecution * ethPriceOracle.read() / WAD;
         uint newFixedReward = (fixedRewardDenominatedValue * RAY / oracleRelayer.redemptionPrice()) * fixedRewardMultiplier / 100;
 
         assertEq(treasuryFundable.fixedReward(), newFixedReward);
